@@ -1,0 +1,18 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: data-controller
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+        - image: registry.zouzland.com/data-controller:0.0.10
+          name: data-controller
+          env:
+            - name: CASSANDRA
+              value: cassandra-face-authent.cassandra
+            - name: KEYSPACE
+              value: Face
+      imagePullSecrets:
+        - name: regcred
