@@ -14,7 +14,8 @@ import (
 type Receiver struct {
 	client       cloudevents.Client
 	CassandraURI string `envconfig:"CASSANDRA"`
-	Keyspace     string `envconfig:"KEYSPACE"`
+	Keyspace     string `default:"Face"`
+	Table 		 string `default:"tbl_Face"`
 	session      *gocql.Session
 }
 
@@ -38,7 +39,7 @@ func main() {
 		return
 	}
 	r.session = session
-	if err := createCassandraEnvironment(session, r.Keyspace); err != nil {
+	if err := createCassandraEnvironment(session, r.Keyspace, r.Table); err != nil {
 		log.Fatal(err.Error())
 		return
 	}
@@ -48,7 +49,7 @@ func main() {
 	}
 }
 
-func createCassandraEnvironment(session *gocql.Session, keyspace string) error {
+func createCassandraEnvironment(session *gocql.Session, keyspace, table string) error {
 	err := session.Query(fmt.Sprintf(`CREATE KEYSPACE IF NOT EXISTS %s
     WITH replication = {
         'class' : 'NetworkTopologyStrategy',
@@ -58,7 +59,7 @@ func createCassandraEnvironment(session *gocql.Session, keyspace string) error {
 		log.Fatal(err.Error())
 		return err
 	}
-	err = session.Query(fmt.Sprintf("CREATE COLUMNFAMILY IF NOT EXISTS %s.tbl_Face (Email VARCHAR PRIMARY KEY, Template VARCHAR);", keyspace)).Exec()
+	err = session.Query(fmt.Sprintf("CREATE COLUMNFAMILY IF NOT EXISTS %s.%s (Email VARCHAR PRIMARY KEY, Template VARCHAR);", keyspace, table)).Exec()
 	if err != nil {
 		log.Fatal(err.Error())
 		return err
@@ -117,7 +118,7 @@ func (recv *Receiver) processInsert(ctx context.Context, event cloudevents.Event
 		return nil, cloudevents.NewHTTPResult(400, "id or embeddings cannot be nil")
 	}
 
-	if err := recv.session.Query(fmt.Sprintf("INSERT INTO %s.tbl_Face (Email,Template) VALUES (?, ?)", recv.Keyspace), req.Id, req.Embeddings).Exec(); err != nil {
+	if err := recv.session.Query(fmt.Sprintf("INSERT INTO %s.%s (Email,Template) VALUES (?, ?)", recv.Keyspace, recv.Table), req.Id, req.Embeddings).Exec(); err != nil {
 		log.Println(err)
 		return nil, cloudevents.NewHTTPResult(500, "error while inserting data in database: %s", err)
 	}
@@ -148,7 +149,7 @@ func (recv *Receiver) processGet(ctx context.Context, event cloudevents.Event) (
 	}
 
 	var template string
-	if err := recv.session.Query(fmt.Sprintf("SELECT template FROM  %s.tbl_Face WHERE email=?;", recv.Keyspace), req.Id).Scan(&template); err != nil {
+	if err := recv.session.Query(fmt.Sprintf("SELECT template FROM  %s.%s WHERE email=?;", recv.Keyspace, recv.Table), req.Id).Scan(&template); err != nil {
 		log.Println(err)
 		return nil, cloudevents.NewHTTPResult(400, "id not found in db")
 	}
