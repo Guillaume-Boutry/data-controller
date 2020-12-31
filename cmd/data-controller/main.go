@@ -67,15 +67,21 @@ func createCassandraEnvironment(session *gocql.Session, keyspace string) error {
 }
 
 // Request is the structure of the event we expect to receive.
-type RequestInsert struct {
+type Request struct {
 	Id         string `json:"id"`
-	Embeddings string `json:"embeddings"`
+	Embeddings string `json:"embeddings,omitempty"`
 }
 
 // Response is the structure of the event we send in response to requests.
 type Response struct {
+	Id         string `json:"id"`
 	Message string `json:"message,omitempty"`
+	Embeddings string `json:"embeddings,omitempty"`
 }
+
+
+
+
 
 // ReceiveAndReply is invoked whenever we receive an event.
 func (recv *Receiver) ReceiveAndReply(ctx context.Context, event cloudevents.Event) (*cloudevents.Event, cloudevents.Result) {
@@ -101,13 +107,17 @@ func (recv *Receiver) ReceiveAndReply(ctx context.Context, event cloudevents.Eve
 }
 
 func (recv *Receiver) processInsert(ctx context.Context, event cloudevents.Event) (*cloudevents.Event, cloudevents.Result) {
-	req := RequestInsert{}
+	req := Request{}
 	if err := event.DataAs(&req); err != nil {
 		log.Println(err)
 		return nil, cloudevents.NewHTTPResult(400, "failed to convert data: %s", err)
 	}
 
-	if err := recv.session.Query(fmt.Sprintf("INSERT INTO %s.tbl_Face (Email,Template) VALUES ('%s', '%s')", recv.Keyspace, req.Id, req.Embeddings)).Exec(); err != nil {
+	if len(req.Id) == 0 || len(req.Embeddings) == 0 {
+		return nil, cloudevents.NewHTTPResult(400, "id or embeddings cannot be nil")
+	}
+
+	if err := recv.session.Query(fmt.Sprintf("INSERT INTO %s.tbl_Face (Email,Template) VALUES (?, ?)", recv.Keyspace), req.Id, req.Embeddings).Exec(); err != nil {
 		log.Println(err)
 		return nil, cloudevents.NewHTTPResult(500, "error while inserting data in database: %s", err)
 	}
@@ -127,5 +137,32 @@ func (recv *Receiver) processInsert(ctx context.Context, event cloudevents.Event
 
 func (recv *Receiver) processGet(ctx context.Context, event cloudevents.Event) (*cloudevents.Event, cloudevents.Result) {
 
-	return nil, nil
+	req := Request{}
+	if err := event.DataAs(&req); err != nil {
+		log.Println(err)
+		return nil, cloudevents.NewHTTPResult(400, "failed to convert data: %s", err)
+	}
+
+	if len(req.Id) == 0 {
+		return nil, cloudevents.NewHTTPResult(400, "id cannot be nil")
+	}
+
+	var template string
+	if err := recv.session.Query(fmt.Sprintf("SELECT template FROM  %s.tbl_Face WHERE email=?;", recv.Keyspace), req.Id).Scan(&template); err != nil {
+		log.Println(err)
+		return nil, cloudevents.NewHTTPResult(400, "id not found in db")
+	}
+
+	log.Printf("Successfuly got %s", req.Id)
+
+	r := cloudevents.NewEvent(cloudevents.VersionV1)
+	r.SetType("inserter")
+	r.SetSource("data-controller")
+	resp := &Response{Message: "Success", Embeddings: template}
+	if err := r.SetData("application/json", resp); err != nil {
+		log.Println(err)
+		return nil, cloudevents.NewHTTPResult(500, "failed to set response data: %s", err)
+	}
+
+	return &r, nil
 }

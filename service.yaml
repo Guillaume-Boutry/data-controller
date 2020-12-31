@@ -7,7 +7,7 @@ spec:
   template:
     spec:
       containers:
-        - image: registry.zouzland.com/data-controller:0.0.10
+        - image: registry.zouzland.com/data-controller:0.0.13
           name: data-controller
           env:
             - name: CASSANDRA
